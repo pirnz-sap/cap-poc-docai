@@ -10,6 +10,7 @@ build-parameters:
     - builder: custom
       commands:
         - npx cds build --production
+        - cds deploy --to sqlite
         - cp -r db.sqlite gen/srv
 modules:
   - name: cap-poc-docai-srv
