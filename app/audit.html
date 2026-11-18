@@ -81,39 +81,14 @@
                 usageTrend: [],
                 confidenceTrend: [],
                 auditMetrics: [],
+                fieldMetrics: [],
                 dateRangeLabel: "",
                 kpis: {
                     avgProcessingTime: 0,
                     avgExtractionChanges: 0,
                     avgAcceptanceAccuracy: 0,
                     totalExtractions: 0
-                },
-                filters: {
-                    search: "",
-                    mailId: "",
-                    mailProcessingStatus: "",
-                    responsibilityRegion: "",
-                    partnerProfile: "",
-                    companySystemCommunication: "",
-                    documentNumberCustomer: "",
-                    senderEmailAddress: "",
-                    receivedAt: "",
-                    attachmentProcessingStatus: "Not Selected",
-                    attachmentExtractionStatus: "Not Selected",
-                    documentType: "Not Selected",
-                    partnerSenderIdentifierSystem: "",
-                    companyReceiverIdentifier: "",
-                    autoProcessed: "Not Selected",
-                    basicRoutingStatus: ""
-                },
-                // Value lists for filters
-                mailProcessingStatusList: [],
-                responsibilityRegionList: [],
-                partnerProfileList: [],
-                attachmentProcessingStatusList: [],
-                attachmentExtractionStatusList: [],
-                documentTypeList: [],
-                basicRoutingStatusList: []
+                }
             });
 
             var oBusyDialog = new BusyDialog({
@@ -457,10 +432,24 @@
 
                 oViewModel.setProperty("/kpis", {
                     avgProcessingTime: avgDuration.toFixed(1),
-                    avgExtractionChanges: 2.7, // Placeholder - would need to track document version changes
+                    avgExtractionChanges: 0, // Will be updated separately
                     avgAcceptanceAccuracy: avgConfidence.toFixed(1),
                     totalExtractions: totalExtractions
                 });
+
+                // Fetch real schema change count
+                var currentClientId = oViewModel.getProperty("/selectedClient");
+                if (currentClientId && currentClientId !== "All Clients") {
+                    fetch(getApiBasePath() + "audit/SchemaVersionChanges?$count=true&$filter=clientId eq '" + currentClientId + "'")
+                        .then(response => response.json())
+                        .then(data => {
+                            var changeCount = data['@odata.count'] || 0;
+                            oViewModel.setProperty("/kpis/avgExtractionChanges", changeCount);
+                        })
+                        .catch(error => {
+                            console.error("Failed to load schema change count:", error);
+                        });
+                }
 
                 usageChart.data.labels = labels;
                 usageChart.data.datasets[0].data = extractionData;
@@ -572,89 +561,7 @@
 
             // Load filter value lists
             function loadFilterValueLists() {
-                // Load Mail Processing Status
-                fetch(getApiBasePath() + "audit/MailProcessingStatus", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/mailProcessingStatusList", values);
-                    })
-                    .catch(error => console.error("Failed to load mail processing status:", error));
-
-                // Load Responsibility Regions
-                fetch(getApiBasePath() + "audit/ResponsibilityRegion", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/responsibilityRegionList", values);
-                    })
-                    .catch(error => console.error("Failed to load responsibility regions:", error));
-
-                // Load Partner Profiles
-                fetch(getApiBasePath() + "audit/PartnerProfile", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/partnerProfileList", values);
-                    })
-                    .catch(error => console.error("Failed to load partner profiles:", error));
-
-                // Load Attachment Processing Status
-                fetch(getApiBasePath() + "audit/AttachmentProcessingStatus", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/attachmentProcessingStatusList", values);
-                    })
-                    .catch(error => console.error("Failed to load attachment processing status:", error));
-
-                // Load Attachment Extraction Status
-                fetch(getApiBasePath() + "audit/AttachmentExtractionStatus", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/attachmentExtractionStatusList", values);
-                    })
-                    .catch(error => console.error("Failed to load attachment extraction status:", error));
-
-                // Load Document Types
-                fetch(getApiBasePath() + "audit/DocumentType", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/documentTypeList", values);
-                    })
-                    .catch(error => console.error("Failed to load document types:", error));
-
-                // Load Basic Routing Status
-                fetch(getApiBasePath() + "audit/BasicRoutingStatus", {
-                    method: "GET",
-                    headers: { "Content-Type": "application/json" }
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        var values = data.value || [];
-                        oViewModel.setProperty("/basicRoutingStatusList", values);
-                    })
-                    .catch(error => console.error("Failed to load basic routing status:", error));
+                // Removed - filter value lists no longer needed
             }
 
             // Load schemas for selected client
@@ -798,6 +705,45 @@
                     });
             }
 
+            // Load field metrics for current schema version
+            function loadFieldMetrics() {
+                var clientId = oViewModel.getProperty("/selectedClient");
+                var selectedSchema = oViewModel.getProperty("/selectedSchema");
+
+                if (!selectedSchema || selectedSchema === "All Schemas") {
+                    oViewModel.setProperty("/fieldMetrics", []);
+                    return;
+                }
+
+                // Extract schema version ID
+                var schemas = oViewModel.getProperty("/schemas");
+                var selectedSchemaObj = schemas.find(function(s) {
+                    return typeof s === 'object' && s.text === selectedSchema;
+                });
+
+                if (!selectedSchemaObj) {
+                    oViewModel.setProperty("/fieldMetrics", []);
+                    return;
+                }
+
+                var params = "clientId='" + clientId + "',schemaVersionId='" + selectedSchemaObj.key + "'";
+                var url = getApiBasePath() + "audit/getFieldMetrics(" + params + ")";
+
+                fetch(url, {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" }
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        var metrics = data.value || [];
+                        oViewModel.setProperty("/fieldMetrics", metrics);
+                    })
+                    .catch(error => {
+                        console.error("Failed to load field metrics:", error);
+                        oViewModel.setProperty("/fieldMetrics", []);
+                    });
+            }
+
             // Export metrics to CSV
             function exportToCSV() {
                 var metrics = oViewModel.getProperty("/auditMetrics");
@@ -898,220 +844,7 @@
                 press: refreshAuditData
             });
 
-            // Filter Bar Components
-            var oFilterSearchField = new SearchField({
-                width: "100%",
-                placeholder: "Search",
-                value: "{view>/filters/search}"
-            });
-
-            var oMailIdInput = new Input({
-                width: "150px",
-                placeholder: "Mail ID",
-                value: "{view>/filters/mailId}",
-                showValueHelp: true
-            });
-
-            var oMailProcessingStatusInput = new Input({
-                width: "180px",
-                placeholder: "Mail Processing Status",
-                value: "{view>/filters/mailProcessingStatus}",
-                showValueHelp: true
-            });
-
-            var oResponsibilityRegionSelect = new Select({
-                width: "180px",
-                selectedKey: "{view>/filters/responsibilityRegion}",
-                items: {
-                    path: "view>/responsibilityRegionList",
-                    template: new Item({
-                        key: "{view>code}",
-                        text: "{view>name}"
-                    })
-                }
-            });
-            // Add default "Not Selected" item
-            oResponsibilityRegionSelect.insertItem(new Item({ key: "", text: "Responsibility Region" }), 0);
-
-            var oPartnerProfileInput = new Input({
-                width: "150px",
-                placeholder: "Partner Profile",
-                value: "{view>/filters/partnerProfile}",
-                showValueHelp: true
-            });
-
-            var oCompanySysCommInput = new Input({
-                width: "220px",
-                placeholder: "Company System Communication",
-                value: "{view>/filters/companySystemCommunication}"
-            });
-
-            var oDocNumberCustomerInput = new Input({
-                width: "200px",
-                placeholder: "Document Number (Customer)",
-                value: "{view>/filters/documentNumberCustomer}",
-                showValueHelp: true
-            });
-
-            var oSenderEmailInput = new Input({
-                width: "180px",
-                placeholder: "Sender Email Address",
-                value: "{view>/filters/senderEmailAddress}",
-                showValueHelp: true
-            });
-
-            var oReceivedAtInput = new Input({
-                width: "150px",
-                placeholder: "Received At",
-                value: "{view>/filters/receivedAt}",
-                showValueHelp: true
-            });
-
-            var oAttachmentProcStatusSelect = new Select({
-                width: "200px",
-                selectedKey: "{view>/filters/attachmentProcessingStatus}",
-                items: {
-                    path: "view>/attachmentProcessingStatusList",
-                    template: new Item({
-                        key: "{view>code}",
-                        text: "{view>name}"
-                    })
-                }
-            });
-            oAttachmentProcStatusSelect.insertItem(new Item({ key: "Not Selected", text: "Attachment Processing Status" }), 0);
-
-            var oAttachmentExtStatusSelect = new Select({
-                width: "200px",
-                selectedKey: "{view>/filters/attachmentExtractionStatus}",
-                items: {
-                    path: "view>/attachmentExtractionStatusList",
-                    template: new Item({
-                        key: "{view>code}",
-                        text: "{view>name}"
-                    })
-                }
-            });
-            oAttachmentExtStatusSelect.insertItem(new Item({ key: "Not Selected", text: "Attachment Extraction Status" }), 0);
-
-            var oDocumentTypeSelect = new Select({
-                width: "150px",
-                selectedKey: "{view>/filters/documentType}",
-                items: {
-                    path: "view>/documentTypeList",
-                    template: new Item({
-                        key: "{view>code}",
-                        text: "{view>name}"
-                    })
-                }
-            });
-            oDocumentTypeSelect.insertItem(new Item({ key: "Not Selected", text: "Document Type" }), 0);
-
-            var oPartnerSenderIdInput = new Input({
-                width: "220px",
-                placeholder: "Partner Sender Identifier System",
-                value: "{view>/filters/partnerSenderIdentifierSystem}",
-                showValueHelp: true
-            });
-
-            var oCompanyReceiverIdInput = new Input({
-                width: "200px",
-                placeholder: "Company Receiver Identifier",
-                value: "{view>/filters/companyReceiverIdentifier}",
-                showValueHelp: true
-            });
-
-            var oAutoProcessedSelect = new Select({
-                width: "150px",
-                selectedKey: "{view>/filters/autoProcessed}",
-                items: [
-                    new Item({ key: "Not Selected", text: "Auto Processed" }),
-                    new Item({ key: "Yes", text: "Yes" }),
-                    new Item({ key: "No", text: "No" })
-                ]
-            });
-
-            var oBasicRoutingStatusInput = new Input({
-                width: "180px",
-                placeholder: "Basic Routing Status",
-                value: "{view>/filters/basicRoutingStatus}",
-                showValueHelp: true
-            });
-
-            var oGoButton = new Button({
-                text: "Go",
-                type: "Emphasized",
-                press: function() {
-                    MessageToast.show("Applying filters...");
-                    loadAuditMetrics();
-                }
-            });
-
-            var oAdaptFiltersLink = new Link({
-                text: "Adapt Filters",
-                press: function() {
-                    MessageToast.show("Filter adaptation not yet implemented");
-                }
-            });
-
-            // Filter Bar Panel
-            var oFilterBar = new Panel({
-                expandable: false,
-                content: new VBox({
-                    items: [
-                        // Top row of filters
-                        new HBox({
-                            wrap: "Wrap",
-                            alignItems: "Center",
-                            items: [
-                                oFilterSearchField.setLayoutData(new FlexItemData({ growFactor: 1 })),
-                                oMailIdInput.addStyleClass("sapUiTinyMarginBegin"),
-                                oMailProcessingStatusInput.addStyleClass("sapUiTinyMarginBegin"),
-                                oResponsibilityRegionSelect.addStyleClass("sapUiTinyMarginBegin"),
-                                oPartnerProfileInput.addStyleClass("sapUiTinyMarginBegin"),
-                                oCompanySysCommInput.addStyleClass("sapUiTinyMarginBegin")
-                            ]
-                        }).addStyleClass("sapUiTinyMarginBottom"),
-                        new HBox({
-                            wrap: "Wrap",
-                            alignItems: "Center",
-                            items: [
-                                oDocNumberCustomerInput,
-                                oSenderEmailInput.addStyleClass("sapUiTinyMarginBegin"),
-                                oReceivedAtInput.addStyleClass("sapUiTinyMarginBegin"),
-                                oAttachmentProcStatusSelect.addStyleClass("sapUiTinyMarginBegin"),
-                                oAttachmentExtStatusSelect.addStyleClass("sapUiTinyMarginBegin"),
-                                oDocumentTypeSelect.addStyleClass("sapUiTinyMarginBegin"),
-                                oPartnerSenderIdInput.addStyleClass("sapUiTinyMarginBegin")
-                            ]
-                        }).addStyleClass("sapUiTinyMarginBottom"),
-                        // Bottom row of filters
-                        new HBox({
-                            wrap: "Wrap",
-                            justifyContent: "SpaceBetween",
-                            alignItems: "Center",
-                            items: [
-                                new HBox({
-                                    wrap: "Wrap",
-                                    alignItems: "Center",
-                                    items: [
-                                        oCompanyReceiverIdInput,
-                                        oAutoProcessedSelect.addStyleClass("sapUiTinyMarginBegin"),
-                                        oBasicRoutingStatusInput.addStyleClass("sapUiTinyMarginBegin")
-                                    ]
-                                }),
-                                new HBox({
-                                    alignItems: "Center",
-                                    items: [
-                                        oGoButton.addStyleClass("sapUiSmallMarginBegin"),
-                                        oAdaptFiltersLink.addStyleClass("sapUiSmallMarginBegin")
-                                    ]
-                                })
-                            ]
-                        })
-                    ]
-                }).addStyleClass("sapUiSmallMargin")
-            }).addStyleClass("sapUiSmallMarginBottom");
-
+            // Refresh Controls Panel
             var oRefreshPanel = new Panel({
                 headerText: "Refresh Controls",
                 expandable: false,
@@ -1232,6 +965,7 @@
                     oViewModel.setProperty("/selectedSchema", selectedKey);
                     loadUsageTrend();
                     loadAuditMetrics();
+                    loadFieldMetrics();
                 }
             });
 
@@ -1491,6 +1225,68 @@
                 }).addStyleClass("sapUiSmallMargin")
             }).addStyleClass("sapUiSmallMarginBottom");
 
+            // Field-Level Performance Table
+            var oFieldMetricsTable = new Table({
+                width: "100%",
+                columns: [
+                    new Column({ header: new Label({ text: "Field Name" }), width: "25%" }),
+                    new Column({ header: new Label({ text: "Type" }), width: "10%" }),
+                    new Column({ header: new Label({ text: "Extractions" }), width: "12%" }),
+                    new Column({ header: new Label({ text: "Avg Confidence" }), width: "15%" }),
+                    new Column({ header: new Label({ text: "Min Confidence" }), width: "13%" }),
+                    new Column({ header: new Label({ text: "Max Confidence" }), width: "13%" }),
+                    new Column({ header: new Label({ text: "Below Threshold" }), width: "12%" })
+                ],
+                items: {
+                    path: "view>/fieldMetrics",
+                    template: new ColumnListItem({
+                        cells: [
+                            new Text({ text: "{view>fieldName}" }),
+                            new Text({ text: "{view>fieldType}" }),
+                            new Text({ text: "{view>totalExtractions}" }),
+                            new ObjectStatus({
+                                text: {
+                                    path: "view>avgConfidence",
+                                    formatter: formatConfidence
+                                },
+                                state: {
+                                    path: "view>avgConfidence",
+                                    formatter: getConfidenceState
+                                }
+                            }),
+                            new ObjectStatus({
+                                text: {
+                                    path: "view>minConfidence",
+                                    formatter: formatConfidence
+                                },
+                                state: {
+                                    path: "view>minConfidence",
+                                    formatter: getConfidenceState
+                                }
+                            }),
+                            new Text({
+                                text: {
+                                    path: "view>maxConfidence",
+                                    formatter: formatConfidence
+                                }
+                            }),
+                            new Text({
+                                text: "{view>belowThresholdCount}"
+                            })
+                        ]
+                    })
+                }
+            });
+
+            var oFieldMetricsPanel = new Panel({
+                headerText: "Field-Level Performance (Current Schema Version)",
+                expandable: true,
+                expanded: false,
+                content: new VBox({
+                    items: [oFieldMetricsTable]
+                }).addStyleClass("sapUiSmallMargin")
+            }).addStyleClass("sapUiSmallMarginBottom");
+
             // Main Content
             var oMainContent = new VBox({
                 width: "100%",
@@ -1516,23 +1312,12 @@
                                     })
                                 ]
                             }),
-                            new HBox({
-                                items: [
-                                    new Button({
-                                        text: "Extraction Changes",
-                                        icon: "sap-icon://tree",
-                                        press: function() {
-                                            window.location.href = "./extraction-changes.html";
-                                        }
-                                    }).addStyleClass("sapUiTinyMarginEnd"),
-                                    new Button({
-                                        text: "Back to Home",
-                                        icon: "sap-icon://home",
-                                        press: function() {
-                                            window.location.href = "./index.html";
-                                        }
-                                    })
-                                ]
+                            new Button({
+                                text: "Back to Home",
+                                icon: "sap-icon://home",
+                                press: function() {
+                                    window.location.href = "./index.html";
+                                }
                             })
                         ]
                     }).addStyleClass("sapUiMediumMarginTop sapUiTinyMarginBottom"),
@@ -1547,12 +1332,12 @@
                             oKPIBadge3
                         ]
                     }).addStyleClass("sapUiSmallMarginBottom"),
-                    oFilterBar,
                     oUsageTrendPanel,
                     oRefreshPanel,
                     oClientSummaryPanel,
                     oConfidenceTrendPanel,
-                    oMetricsPanel
+                    oMetricsPanel,
+                    oFieldMetricsPanel
                 ],
                 alignItems: "Stretch"
             }).addStyleClass("sapUiContentPadding");

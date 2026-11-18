@@ -1121,25 +1121,8 @@ module.exports = cds.service.impl(async function() {
       try {
         doc = await SELECT.one.from(Documents).where({ docaiDocumentId: documentId });
         if (doc) {
-          // If callback data already exists, use it instead of overwriting with API data
-          if (doc.extractionSource === 'callback' && doc.extractionData) {
-            console.log('[INFO] getDocAIResults - Using callback data instead of API data');
-            const extractionData = JSON.parse(doc.extractionData);
-
-            return {
-              headerFields: extractionData.headerFields || [],
-              lineItems: extractionData.lineItems || [],
-              parentEntities: extractionData.parentEntities || {},
-              documentConfidence: extractionData.documentConfidence || 0,
-              fileData: fileData, // Still use file from API since callback doesn't include it
-              fileName: fileName,
-              mimeType: mimeType,
-              extractionSource: 'callback',
-              rawResults: JSON.stringify(extractionData.rawPayload || {})
-            };
-          }
-
-          // No callback data - store API data
+          // Always store the fresh API data (properly encoded)
+          // The callback data is only used as a fallback when API is unavailable (see catch block below)
           const extractionData = {
             headerFields: headerFields,
             lineItems: lineItems,
@@ -1158,7 +1141,7 @@ module.exports = cds.service.impl(async function() {
           });
 
           finalExtractionSource = 'api';
-          console.log('[INFO] getDocAIResults - API extraction data cached in DB');
+          console.log('[INFO] getDocAIResults - Fresh API extraction data stored (UTF-8 encoded)');
         }
       } catch (cacheError) {
         console.error('[ERROR] getDocAIResults - Failed to cache extraction data:', cacheError.message);

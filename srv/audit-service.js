@@ -151,6 +151,9 @@ module.exports = cds.service.impl(async function() {
       // Aggregation map for ClientSchemaUsage
       const usageMap = new Map();
 
+      // Field metrics aggregation map
+      const fieldMetricsMap = new Map();
+
       while (hasMore) {
         console.log(`[INFO] Fetching documents - skip: ${skip}, top: ${pageSize}`);
 
@@ -269,6 +272,30 @@ module.exports = cds.service.impl(async function() {
             processedDocuments.add(doc.ID);
 
             recordsProcessed++;
+
+            // Collect field-level metrics for each entity
+            for (const entity of entities) {
+              if (entity.type === 'Field' && entity.name && entity.confidence !== undefined) {
+                const fieldKey = `${schemaMetadata.clientId}|${schemaVersionId}|${entity.name}`;
+
+                if (!fieldMetricsMap.has(fieldKey)) {
+                  fieldMetricsMap.set(fieldKey, {
+                    clientId: schemaMetadata.clientId,
+                    schemaVersionId: schemaVersionId,
+                    schemaName: schemaMetadata.schemaName,
+                    schemaVersion: schemaMetadata.schemaVersion,
+                    fieldName: entity.name,
+                    fieldType: entity.type,
+                    fieldDataType: entity.dataType || 'String',
+                    confidences: [],
+                    lastExtractionAt: doc.finishedAt || doc.createdAt
+                  });
+                }
+
+                const fieldMetric = fieldMetricsMap.get(fieldKey);
+                fieldMetric.confidences.push(entity.confidence);
+              }
+            }
 
             // Aggregate for ClientSchemaUsage
             const usageKey = `${schemaMetadata.clientId}|${schemaVersionId}`;
@@ -402,6 +429,51 @@ module.exports = cds.service.impl(async function() {
       }
 
       console.log(`[INFO] Updated ${usageSummaryMap.size} ClientSchemaUsage records`);
+
+      // Process and store field-level metrics
+      console.log(`[INFO] Processing ${fieldMetricsMap.size} field metrics`);
+      const { FieldExtractionMetrics } = this.entities;
+
+      for (const [key, metric] of fieldMetricsMap.entries()) {
+        const confidences = metric.confidences;
+        if (confidences.length === 0) continue;
+
+        const avgConf = confidences.reduce((a, b) => a + b, 0) / confidences.length;
+        const minConf = Math.min(...confidences);
+        const maxConf = Math.max(...confidences);
+        const belowThreshold = confidences.filter(c => c < 0.8).length;
+
+        const existing = await SELECT.one.from(FieldExtractionMetrics).where({
+          clientId: metric.clientId,
+          schemaVersionId: metric.schemaVersionId,
+          fieldName: metric.fieldName
+        });
+
+        const fieldData = {
+          clientId: metric.clientId,
+          schemaVersionId: metric.schemaVersionId,
+          schemaName: metric.schemaName,
+          schemaVersion: metric.schemaVersion,
+          fieldName: metric.fieldName,
+          fieldType: metric.fieldType,
+          fieldDataType: metric.fieldDataType,
+          totalExtractions: confidences.length,
+          avgConfidence: parseFloat(avgConf.toFixed(4)),
+          minConfidence: parseFloat(minConf.toFixed(4)),
+          maxConfidence: parseFloat(maxConf.toFixed(4)),
+          belowThresholdCount: belowThreshold,
+          snapshotAt: snapshotTimestamp,
+          lastExtractionAt: metric.lastExtractionAt
+        };
+
+        if (existing) {
+          await UPDATE(FieldExtractionMetrics, existing.ID).set(fieldData);
+        } else {
+          await INSERT.into(FieldExtractionMetrics).entries(fieldData);
+        }
+      }
+
+      console.log(`[INFO] Updated ${fieldMetricsMap.size} FieldExtractionMetrics records`);
 
       const executionTime = Date.now() - startTime;
       console.log(`[INFO] refreshAuditData complete - ${recordsProcessed} records in ${executionTime}ms`);
@@ -647,4 +719,337 @@ module.exports = cds.service.impl(async function() {
       req.error(500, `Failed to get schemas by client: ${error.message}`);
     }
   });
+
+  /**
+   * Get Field Metrics Function
+   * Returns field-level performance metrics for a schema version
+   */
+  this.on('getFieldMetrics', async (req) => {
+    const { clientId, schemaVersionId } = req.data;
+    const { FieldExtractionMetrics } = this.entities;
+
+    console.log(`[INFO] getFieldMetrics - clientId: ${clientId}, schemaVersionId: ${schemaVersionId}`);
+
+    try {
+      const query = SELECT.from(FieldExtractionMetrics).where({
+        clientId: clientId || 'default',
+        schemaVersionId: schemaVersionId
+      }).orderBy('avgConfidence asc');
+
+      const metrics = await query;
+
+      const result = metrics.map(m => ({
+        fieldName: m.fieldName,
+        fieldType: m.fieldType,
+        totalExtractions: m.totalExtractions,
+        avgConfidence: m.avgConfidence,
+        minConfidence: m.minConfidence,
+        maxConfidence: m.maxConfidence,
+        belowThresholdCount: m.belowThresholdCount
+      }));
+
+      console.log(`[INFO] getFieldMetrics - Found ${result.length} field metrics`);
+      return result;
+
+    } catch (error) {
+      console.error('[ERROR] getFieldMetrics failed:', error);
+      req.error(500, `Failed to get field metrics: ${error.message}`);
+    }
+  });
+
+  /**
+   * Get Schema Version Timeline Function
+   * Returns timeline of schema versions with deployment dates
+   */
+  this.on('getSchemaVersionTimeline', async (req) => {
+    const { clientId, schemaId } = req.data;
+    const { SchemaVersionSnapshot } = this.entities;
+
+    console.log(`[INFO] getSchemaVersionTimeline - clientId: ${clientId}, schemaId: ${schemaId}`);
+
+    try {
+      const snapshots = await SELECT.from(SchemaVersionSnapshot)
+        .where({ clientId: clientId, schemaId: schemaId })
+        .orderBy('version asc');
+
+      const result = snapshots.map(s => ({
+        schemaVersionId: s.schemaVersionId,
+        version: s.version,
+        deployedAt: s.deployedAt,
+        isActive: s.isActive,
+        totalDocuments: s.totalDocumentsProcessed || 0,
+        avgConfidence: 0 // To be calculated from AuditMetrics if needed
+      }));
+
+      console.log(`[INFO] getSchemaVersionTimeline - Found ${result.length} versions`);
+      return result;
+
+    } catch (error) {
+      console.error('[ERROR] getSchemaVersionTimeline failed:', error);
+      req.error(500, `Failed to get schema version timeline: ${error.message}`);
+    }
+  });
+
+  /**
+   * Get Schema Version Changes Function
+   * Returns changes between schema versions
+   */
+  this.on('getSchemaVersionChanges', async (req) => {
+    const { schemaId, versionFrom, versionTo } = req.data;
+    const { SchemaVersionChanges } = this.entities;
+
+    console.log(`[INFO] getSchemaVersionChanges - schemaId: ${schemaId}, from: ${versionFrom}, to: ${versionTo}`);
+
+    try {
+      let query = SELECT.from(SchemaVersionChanges).where({ schemaId: schemaId });
+
+      if (versionFrom !== undefined && versionFrom !== null) {
+        query = query.and({ versionFrom: versionFrom });
+      }
+      if (versionTo !== undefined && versionTo !== null) {
+        query = query.and({ versionTo: versionTo });
+      }
+
+      query = query.orderBy('changeType', 'fieldName');
+      const changes = await query;
+
+      const result = changes.map(c => ({
+        changeType: c.changeType,
+        fieldName: c.fieldName,
+        fieldType: c.fieldType,
+        changeDetails: c.changeDetails,
+        detectedAt: c.detectedAt
+      }));
+
+      console.log(`[INFO] getSchemaVersionChanges - Found ${result.length} changes`);
+      return result;
+
+    } catch (error) {
+      console.error('[ERROR] getSchemaVersionChanges failed:', error);
+      req.error(500, `Failed to get schema version changes: ${error.message}`);
+    }
+  });
+
+  /**
+   * Collect Schema Snapshots Action
+   * Queries DocAI for all schema versions and stores definitions
+   */
+  this.on('collectSchemaSnapshots', async (req) => {
+    const { clientId } = req.data;
+    const { SchemaVersionSnapshot, SchemaVersionChanges } = this.entities;
+    const errors = [];
+    let recordsProcessed = 0;
+
+    console.log(`[INFO] collectSchemaSnapshots - clientId: ${clientId || 'All'}`);
+
+    try {
+      const axios = require('axios');
+      const { baseUrl, authHeaders } = await getDocAIConnection();
+
+      // Query all schema versions for client
+      let filter = '';
+      if (clientId && clientId !== 'All Clients') {
+        filter = `$filter=schema/clientId eq '${clientId}'`;
+      }
+
+      const schemasUrl = `${baseUrl}/SchemaService/SchemaVersions?${filter}&$expand=schema,entities`;
+      console.log(`[INFO] Querying schemas: ${schemasUrl}`);
+
+      const response = await executeWithRetry(async () => {
+        return await axios.get(schemasUrl, { headers: authHeaders, timeout: 60000 });
+      });
+
+      const schemaVersions = response.data.value || [];
+      const snapshotTimestamp = new Date().toISOString();
+      console.log(`[INFO] Retrieved ${schemaVersions.length} schema versions`);
+
+      for (const sv of schemaVersions) {
+        try {
+          // Check if snapshot exists
+          const existing = await SELECT.one.from(SchemaVersionSnapshot).where({
+            schemaVersionId: sv.ID
+          });
+
+          // Serialize field definitions
+          const fieldDefinitions = (sv.entities || []).map(e => ({
+            name: e.name,
+            type: e.type,
+            dataType: e.dataType,
+            label: e.label,
+            description: e.description,
+            mandatory: e.mandatory,
+            minimumOccurrence: e.minimumOccurrence,
+            maximumOccurrence: e.maximumOccurrence,
+            processingInstructions: e.processingInstructions
+          }));
+
+          const snapshotData = {
+            schemaVersionId: sv.ID,
+            schemaId: sv.schema_ID,
+            schemaName: sv.schema?.name || 'Unknown',
+            version: sv.version,
+            clientId: sv.schema?.clientId || 'default',
+            createdAt: sv.createdAt,
+            deployedAt: sv.createdAt,
+            isActive: sv.isActive,
+            description: sv.description,
+            processingInstructions: sv.processingInstructions,
+            fieldDefinitions: JSON.stringify(fieldDefinitions),
+            snapshotAt: snapshotTimestamp
+          };
+
+          if (existing) {
+            await UPDATE(SchemaVersionSnapshot, existing.ID).set(snapshotData);
+          } else {
+            await INSERT.into(SchemaVersionSnapshot).entries(snapshotData);
+          }
+
+          recordsProcessed++;
+        } catch (svError) {
+          const errorMsg = `Error processing schema version ${sv.ID}: ${svError.message}`;
+          console.error(`[ERROR] ${errorMsg}`);
+          errors.push(errorMsg);
+        }
+      }
+
+      // Detect changes between consecutive versions
+      await detectSchemaVersionChanges.call(this);
+
+      console.log(`[INFO] collectSchemaSnapshots complete - ${recordsProcessed} records processed`);
+
+      return {
+        status: errors.length > 0 ? 'completed_with_errors' : 'success',
+        recordsProcessed: recordsProcessed,
+        errors: errors
+      };
+
+    } catch (error) {
+      console.error('[ERROR] collectSchemaSnapshots failed:', error);
+      errors.push(error.message);
+      return {
+        status: 'failed',
+        recordsProcessed: recordsProcessed,
+        errors: errors
+      };
+    }
+  });
+
+  /**
+   * Helper: Detect changes between schema versions
+   */
+  async function detectSchemaVersionChanges() {
+    const { SchemaVersionSnapshot, SchemaVersionChanges } = this.entities;
+
+    console.log(`[INFO] Detecting schema version changes`);
+
+    // Get all snapshots grouped by schemaId, ordered by version
+    const snapshots = await SELECT.from(SchemaVersionSnapshot).orderBy('schemaId', 'version');
+
+    const schemaGroups = {};
+    for (const snapshot of snapshots) {
+      if (!schemaGroups[snapshot.schemaId]) {
+        schemaGroups[snapshot.schemaId] = [];
+      }
+      schemaGroups[snapshot.schemaId].push(snapshot);
+    }
+
+    let changesDetected = 0;
+
+    // Compare consecutive versions
+    for (const schemaId in schemaGroups) {
+      const versions = schemaGroups[schemaId];
+
+      for (let i = 0; i < versions.length - 1; i++) {
+        const vFrom = versions[i];
+        const vTo = versions[i + 1];
+
+        const fieldsFrom = JSON.parse(vFrom.fieldDefinitions || '[]');
+        const fieldsTo = JSON.parse(vTo.fieldDefinitions || '[]');
+
+        const fieldMapFrom = new Map(fieldsFrom.map(f => [f.name, f]));
+        const fieldMapTo = new Map(fieldsTo.map(f => [f.name, f]));
+
+        const changes = [];
+
+        // Detect added fields
+        for (const [name, field] of fieldMapTo.entries()) {
+          if (!fieldMapFrom.has(name)) {
+            changes.push({
+              changeType: 'FIELD_ADDED',
+              fieldName: name,
+              fieldType: field.type,
+              changeDetails: JSON.stringify({ added: field })
+            });
+          }
+        }
+
+        // Detect removed fields
+        for (const [name, field] of fieldMapFrom.entries()) {
+          if (!fieldMapTo.has(name)) {
+            changes.push({
+              changeType: 'FIELD_REMOVED',
+              fieldName: name,
+              fieldType: field.type,
+              changeDetails: JSON.stringify({ removed: field })
+            });
+          }
+        }
+
+        // Detect modified fields
+        for (const [name, fieldTo] of fieldMapTo.entries()) {
+          if (fieldMapFrom.has(name)) {
+            const fieldFrom = fieldMapFrom.get(name);
+
+            // Check for meaningful changes
+            const changed =
+              fieldFrom.mandatory !== fieldTo.mandatory ||
+              fieldFrom.dataType !== fieldTo.dataType ||
+              fieldFrom.minimumOccurrence !== fieldTo.minimumOccurrence ||
+              fieldFrom.maximumOccurrence !== fieldTo.maximumOccurrence;
+
+            if (changed) {
+              changes.push({
+                changeType: 'FIELD_MODIFIED',
+                fieldName: name,
+                fieldType: fieldTo.type,
+                changeDetails: JSON.stringify({ before: fieldFrom, after: fieldTo })
+              });
+            }
+          }
+        }
+
+        // Store changes
+        for (const change of changes) {
+          const existing = await SELECT.one.from(SchemaVersionChanges).where({
+            schemaId: schemaId,
+            versionFrom: vFrom.version,
+            versionTo: vTo.version,
+            fieldName: change.fieldName,
+            changeType: change.changeType
+          });
+
+          if (!existing) {
+            await INSERT.into(SchemaVersionChanges).entries({
+              schemaId: schemaId,
+              schemaName: vFrom.schemaName,
+              clientId: vFrom.clientId,
+              versionFrom: vFrom.version,
+              versionTo: vTo.version,
+              schemaVersionIdFrom: vFrom.schemaVersionId,
+              schemaVersionIdTo: vTo.schemaVersionId,
+              changeType: change.changeType,
+              fieldName: change.fieldName,
+              fieldType: change.fieldType,
+              changeDetails: change.changeDetails,
+              detectedAt: new Date().toISOString()
+            });
+            changesDetected++;
+          }
+        }
+      }
+    }
+
+    console.log(`[INFO] Detected ${changesDetected} schema version changes`);
+  }
+
 });

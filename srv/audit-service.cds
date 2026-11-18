@@ -98,4 +98,86 @@ service AuditService @(path: '/audit') {
     avgConfidence: Decimal(5,4);
     lastExtractionAt: DateTime;
   };
+
+  /**
+   * Get Field Metrics
+   * Returns field-level performance metrics for a schema version
+   *
+   * @param clientId - Client ID
+   * @param schemaVersionId - Schema version ID
+   * @returns Array of field performance metrics
+   */
+  function getFieldMetrics(
+    clientId: String,
+    schemaVersionId: String
+  ) returns array of {
+    fieldName: String;
+    fieldType: String;
+    totalExtractions: Integer;
+    avgConfidence: Decimal(5,4);
+    minConfidence: Decimal(5,4);
+    maxConfidence: Decimal(5,4);
+    belowThresholdCount: Integer;
+  };
+
+  /**
+   * Get Schema Version Timeline
+   * Returns timeline of schema versions with deployment dates
+   *
+   * @param clientId - Client ID
+   * @param schemaId - Schema ID (not version ID)
+   * @returns Array of schema versions ordered by version
+   */
+  function getSchemaVersionTimeline(
+    clientId: String,
+    schemaId: String
+  ) returns array of {
+    schemaVersionId: String;
+    version: Integer;
+    deployedAt: DateTime;
+    isActive: Boolean;
+    totalDocuments: Integer;
+    avgConfidence: Decimal(5,4);
+  };
+
+  /**
+   * Get Schema Version Changes
+   * Returns changes between schema versions
+   *
+   * @param schemaId - Schema ID
+   * @param versionFrom - Starting version number
+   * @param versionTo - Ending version number
+   * @returns Array of field changes between versions
+   */
+  function getSchemaVersionChanges(
+    schemaId: String,
+    versionFrom: Integer,
+    versionTo: Integer
+  ) returns array of {
+    changeType: String;
+    fieldName: String;
+    fieldType: String;
+    changeDetails: String;
+    detectedAt: DateTime;
+  };
+
+  /**
+   * Collect Schema Snapshots
+   * Queries DocAI for all schema versions and stores definitions
+   *
+   * @param clientId - Client ID to filter by (optional)
+   * @returns Execution summary with record counts
+   */
+  action collectSchemaSnapshots(
+    clientId: String
+  ) returns {
+    status: String;
+    recordsProcessed: Integer;
+    errors: array of String;
+  };
+
+  // Entity projections for new data
+  entity FieldExtractionMetrics as projection on db.FieldExtractionMetrics;
+  entity SchemaVersionSnapshot as projection on db.SchemaVersionSnapshot;
+  entity SchemaVersionChanges as projection on db.SchemaVersionChanges;
 }

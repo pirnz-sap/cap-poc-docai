@@ -90,21 +90,6 @@
                 })
             }).addStyleClass("sapUiTinyMarginEnd");
 
-            var oExtractionChangesTile = new GenericTile({
-                header: "Extraction Changes",
-                subheader: "Field-level change analytics",
-                press: function() {
-                    navigateTo("./extraction-changes.html");
-                },
-                tileContent: new TileContent({
-                    content: new Icon({
-                        src: "sap-icon://tree",
-                        size: "4rem",
-                        color: "#0a6ed1"
-                    })
-                })
-            });
-
             // System information panel
             var oSystemInfoPanel = new Panel({
                 headerText: "System Information",
@@ -248,10 +233,6 @@
                                 maxWidth: "350px"
                             })),
                             oAuditTile.setLayoutData(new FlexItemData({
-                                minWidth: "280px",
-                                maxWidth: "350px"
-                            })),
-                            oExtractionChangesTile.setLayoutData(new FlexItemData({
                                 minWidth: "280px",
                                 maxWidth: "350px"
                             }))

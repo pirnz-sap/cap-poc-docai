@@ -115,3 +115,74 @@ entity BasicRoutingStatus : cuid {
   name: String(100);
   description: String(500);
 }
+
+// Field Extraction Metrics - Per-field performance metrics
+entity FieldExtractionMetrics : cuid {
+  clientId: String(255);
+  schemaVersionId: String(255);
+  schemaName: String(255);
+  schemaVersion: Integer;
+  fieldName: String(255);        // Entity name from SchemaEntities
+  fieldType: String(50);          // 'Field', 'Table', 'Group'
+  fieldDataType: String(50);      // 'String', 'Number', 'Date'
+
+  // Aggregated metrics
+  totalExtractions: Integer default 0;
+  avgConfidence: Decimal(5,4);
+  minConfidence: Decimal(5,4);
+  maxConfidence: Decimal(5,4);
+  belowThresholdCount: Integer default 0;  // confidence < 0.8
+
+  // Metadata
+  snapshotAt: Timestamp;
+  lastExtractionAt: Timestamp;
+}
+
+// Schema Version Snapshot - Schema version metadata and field definitions
+entity SchemaVersionSnapshot : cuid {
+  schemaVersionId: String(255) @assert.unique;
+  schemaId: String(255);
+  schemaName: String(255);
+  version: Integer;
+  clientId: String(255);
+
+  // Timing
+  createdAt: Timestamp;
+  deployedAt: Timestamp;
+  isActive: Boolean default false;
+
+  // Schema definition
+  description: String(500);
+  processingInstructions: String(1000);
+
+  // Field definitions (JSON)
+  fieldDefinitions: LargeString;  // JSON array of SchemaEntities
+
+  // Usage metrics
+  totalDocumentsProcessed: Integer default 0;
+  snapshotAt: Timestamp;
+}
+
+// Schema Version Changes - Track changes between schema versions
+entity SchemaVersionChanges : cuid {
+  schemaId: String(255);
+  schemaName: String(255);
+  clientId: String(255);
+
+  // Version transition
+  versionFrom: Integer;
+  versionTo: Integer;
+  schemaVersionIdFrom: String(255);
+  schemaVersionIdTo: String(255);
+
+  // Change details
+  changeType: String(50);         // 'FIELD_ADDED', 'FIELD_REMOVED', 'FIELD_MODIFIED', 'SCHEMA_CREATED'
+  fieldName: String(255);
+  fieldType: String(50);
+
+  // Change specifics (JSON)
+  changeDetails: LargeString;     // JSON with before/after field definitions
+
+  // Metadata
+  detectedAt: Timestamp;
+}
