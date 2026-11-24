@@ -104,11 +104,11 @@
                         new HBox({
                             items: [
                                 new Text({
-                                    text: "OData Service:",
+                                    text: "UI Service:",
                                     width: "150px"
                                 }).addStyleClass("sapUiSmallMarginEnd"),
                                 new Text({
-                                    text: "/odata/document",
+                                    text: "/ui - Main UI actions and OData entities",
                                     wrapping: true
                                 })
                             ]
@@ -116,11 +116,11 @@
                         new HBox({
                             items: [
                                 new Text({
-                                    text: "Webhook Endpoint:",
+                                    text: "Audit Service:",
                                     width: "150px"
                                 }).addStyleClass("sapUiSmallMarginEnd"),
                                 new Text({
-                                    text: "/webhook/docai",
+                                    text: "/audit - Metrics and analytics",
                                     wrapping: true
                                 })
                             ]
@@ -128,11 +128,35 @@
                         new HBox({
                             items: [
                                 new Text({
-                                    text: "Enriching Endpoint:",
+                                    text: "Post Callback:",
                                     width: "150px"
                                 }).addStyleClass("sapUiSmallMarginEnd"),
                                 new Text({
-                                    text: "/enrich",
+                                    text: "/post/callback - DocAI completion webhook",
+                                    wrapping: true
+                                })
+                            ]
+                        }).addStyleClass("sapUiTinyMarginTop"),
+                        new HBox({
+                            items: [
+                                new Text({
+                                    text: "Enrich Callback:",
+                                    width: "150px"
+                                }).addStyleClass("sapUiSmallMarginEnd"),
+                                new Text({
+                                    text: "/enrich/callback - Enrichment webhook",
+                                    wrapping: true
+                                })
+                            ]
+                        }).addStyleClass("sapUiTinyMarginTop"),
+                        new HBox({
+                            items: [
+                                new Text({
+                                    text: "Webhook (Legacy):",
+                                    width: "150px"
+                                }).addStyleClass("sapUiSmallMarginEnd"),
+                                new Text({
+                                    text: "/webhook/docai - Deprecated webhook",
                                     wrapping: true
                                 })
                             ]
@@ -144,21 +168,23 @@
                         }).addStyleClass("sapUiSmallMarginTop"),
                         new VBox({
                             items: [
-                                new Text({ text: "• uploadDocument - Upload PDF to DocAI" }),
-                                new Text({ text: "• confirmDocument - Confirm extraction results" }),
-                                new Text({ text: "• getExtractionResults - Retrieve parsed data" }),
-                                new Text({ text: "• submitToDocAI - Submit document for processing" }),
-                                new Text({ text: "• getDocAIStatus - Check processing status" }),
-                                new Text({ text: "• getDocAIResults - Get full results with PDF" }),
-                                new Text({ text: "• updateAndConfirmDocument - Update and confirm in one call" }),
-                                new Text({ text: "• postSupplierInvoiceToS4 - Post invoice to S/4HANA" }),
+                                new Text({ text: "• uploadFile - Upload .eml or .pdf document" }),
+                                new Text({ text: "• processDocument - Submit document to DocAI" }),
+                                new Text({ text: "• processBatch - Process all documents in batch" }),
+                                new Text({ text: "• validateDocument - Validate extraction results" }),
+                                new Text({ text: "• getAvailableSchemas - List DocAI schemas" }),
                                 new Text({ text: "• testDocAI - Test API connectivity" }),
-                                new Text({ text: "• getSchemaClients - List available clients" }),
+                                new Text({ text: "• submitToDocAI - Direct DocAI submission" }),
+                                new Text({ text: "• getDocAIStatus - Check processing status" }),
+                                new Text({ text: "• getDocAIResults - Get extraction results" }),
+                                new Text({ text: "• pollAndProcessDocument - Poll and process" }),
+                                new Text({ text: "• processDocumentWithPolling - Process with polling" }),
+                                new Text({ text: "• getSchemaClients - List schema clients" }),
                                 new Text({ text: "• getSchemaVersionsList - List schema versions" }),
                                 new Text({ text: "• getSchemaFields - Get schema field definitions" }),
-                                new Text({ text: "• createBatch - Create processing batch" }),
-                                new Text({ text: "• processBatch - Process batch documents" }),
-                                new Text({ text: "• pollBatchStatus - Monitor batch processing" })
+                                new Text({ text: "• updateAndConfirmDocument - Update and confirm" }),
+                                new Text({ text: "• postSupplierInvoiceToS4 - Post to S/4HANA" }),
+                                new Text({ text: "• getEnvironment - Get DocAI UI URL" })
                             ]
                         }).addStyleClass("sapUiTinyMarginTop")
                     ]
@@ -169,7 +195,7 @@
             var oFooter = new VBox({
                 items: [
                     new Text({
-                        text: "DocAI Workbench v1.0.0 | Built with SAP CAP and SAP Document Information Extraction v4",
+                        text: "DocAI Workbench v1.0.0 | Built with SAP CAP and SAP Document AI v4",
                         textAlign: "Center"
                     }).addStyleClass("sapUiTinyMarginTop"),
                     new HBox({
@@ -211,7 +237,7 @@
                                 level: "H1"
                             }).addStyleClass("sapUiLargeMarginTop"),
                             new Text({
-                                text: "Process documents with SAP Document Information Extraction",
+                                text: "Process documents with SAP Document AI",
                                 textAlign: "Center"
                             }).addStyleClass("sapUiTinyMarginTop")
                         ]

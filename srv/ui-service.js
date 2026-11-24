@@ -1,7 +1,5 @@
 const cds = require('@sap/cds');
 const { normalizePayload, validatePayload } = require('./utils/payload-normalizer');
-const { simpleParser } = require('mailparser');
-const AdmZip = require('adm-zip');
 const FormData = require('form-data');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
@@ -102,13 +100,22 @@ module.exports = cds.service.impl(async function() {
 
     console.log(`[DEBUG] uploadFile - File size: ${fileBuffer.length} bytes`);
 
-    // Determine file type
-    const fileType = fileName.toLowerCase().endsWith('.eml') ? 'eml' :
-                     fileName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'unknown';
+    // Supported file extensions
+    const supportedExtensions = [
+      'bmp', 'csv', 'doc', 'docm', 'docx', 'dot', 'dotm', 'dotx',
+      'eml', 'emlx', 'gif', 'heic', 'jpeg', 'jpg', 'json', 'msg',
+      'numbers', 'ods', 'odt', 'oft', 'olm', 'pages', 'pdf', 'png',
+      'psd', 'rtf', 'svg', 'tif', 'tiff', 'tsv', 'txt',
+      'xlam', 'xls', 'xlsb', 'xlsm', 'xlsx', 'xlt', 'xltm', 'xltx',
+      'xml', 'webp'
+    ];
 
-    if (fileType === 'unknown') {
-      console.log(`[ERROR] uploadFile - Invalid file type: ${fileName}`);
-      req.error(400, 'Invalid file type. Only .eml and .pdf files are supported.');
+    // Extract file extension
+    const fileExtension = fileName.toLowerCase().split('.').pop();
+
+    if (!supportedExtensions.includes(fileExtension)) {
+      console.log(`[ERROR] uploadFile - Unsupported file type: ${fileName}`);
+      req.error(400, `Unsupported file type. Supported types: ${supportedExtensions.join(', ')}`);
     }
 
     // Create processing batch
@@ -117,7 +124,7 @@ module.exports = cds.service.impl(async function() {
     await INSERT.into(ProcessingBatches).entries({
       ID: batchId,
       fileName,
-      fileType,
+      fileType: fileExtension,
       uploadedAt: new Date().toISOString(),
       status: 'uploaded',
       totalDocuments: 0,
@@ -130,22 +137,16 @@ module.exports = cds.service.impl(async function() {
     let documents = [];
 
     try {
-      if (fileType === 'eml') {
-        console.log(`[INFO] uploadFile - Parsing email attachments`);
-        // Parse email to extract PDF attachments
-        documents = await parseEmailAttachments(fileBuffer, batchId);
-      } else if (fileType === 'pdf') {
-        console.log(`[INFO] uploadFile - Direct PDF upload`);
-        // Direct PDF upload
-        documents.push({
-          batch_ID: batchId,
-          fileName,
-          fileContent: fileBuffer,
-          mimeType,
-          uploadedAt: new Date().toISOString(),
-          status: 'pending'
-        });
-      }
+      // Direct file upload - all file types supported
+      console.log(`[INFO] uploadFile - Direct file upload: ${fileName}`);
+      documents.push({
+        batch_ID: batchId,
+        fileName,
+        fileContent: fileBuffer,
+        mimeType,
+        uploadedAt: new Date().toISOString(),
+        status: 'pending'
+      });
 
       // Store documents
       if (documents.length > 0) {
@@ -398,89 +399,6 @@ module.exports = cds.service.impl(async function() {
       }))
     };
   });
-
-  /**
-   * Parse email attachments
-   */
-  async function parseEmailAttachments(emlBuffer, batchId) {
-    console.log(`[INFO] parseEmailAttachments - batchId: ${batchId}`);
-    const documents = [];
-
-    try {
-      const mail = await simpleParser(emlBuffer);
-
-      if (!mail.attachments || mail.attachments.length === 0) {
-        console.log('[WARNING] parseEmailAttachments - No attachments found in email');
-        return [];
-      }
-
-      console.log(`[INFO] parseEmailAttachments - Found ${mail.attachments.length} attachments`);
-
-      for (const attachment of mail.attachments) {
-        const fileName = attachment.filename || 'attachment';
-
-        console.log(`[DEBUG] parseEmailAttachments - Processing attachment: ${fileName}`);
-
-        // Check if PDF
-        if (fileName.toLowerCase().endsWith('.pdf')) {
-          console.log(`[INFO] parseEmailAttachments - Adding PDF: ${fileName}`);
-          documents.push({
-            batch_ID: batchId,
-            fileName,
-            fileContent: attachment.content,
-            mimeType: 'application/pdf',
-            uploadedAt: new Date().toISOString(),
-            status: 'pending'
-          });
-        }
-        // Check if ZIP
-        else if (fileName.toLowerCase().endsWith('.zip')) {
-          console.log(`[INFO] parseEmailAttachments - Extracting ZIP: ${fileName}`);
-          const zipDocs = await extractPdfsFromZip(attachment.content, batchId);
-          documents.push(...zipDocs);
-        } else {
-          console.log(`[DEBUG] parseEmailAttachments - Skipping non-PDF/ZIP attachment: ${fileName}`);
-        }
-      }
-
-      console.log(`[INFO] parseEmailAttachments - Total documents extracted: ${documents.length}`);
-      return documents;
-    } catch (error) {
-      console.error('[ERROR] parseEmailAttachments - Email parsing error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Extract PDFs from ZIP file
-   */
-  async function extractPdfsFromZip(zipBuffer, batchId) {
-    console.log(`[INFO] extractPdfsFromZip - batchId: ${batchId}`);
-    const documents = [];
-    const zip = new AdmZip(zipBuffer);
-    const zipEntries = zip.getEntries();
-
-    console.log(`[DEBUG] extractPdfsFromZip - Total ZIP entries: ${zipEntries.length}`);
-
-    for (const entry of zipEntries) {
-      if (!entry.isDirectory && entry.entryName.toLowerCase().endsWith('.pdf')) {
-        console.log(`[INFO] extractPdfsFromZip - Extracting PDF from ZIP: ${entry.entryName}`);
-        documents.push({
-          batch_ID: batchId,
-          fileName: entry.entryName,
-          fileContent: entry.getData(),
-          mimeType: 'application/pdf',
-          uploadedAt: new Date().toISOString(),
-          status: 'pending'
-        });
-      } else {
-        console.log(`[DEBUG] extractPdfsFromZip - Skipping entry: ${entry.entryName}, isDirectory: ${entry.isDirectory}`);
-      }
-    }
-
-    console.log(`[INFO] extractPdfsFromZip - Total PDFs extracted: ${documents.length}`);
-    return documents;
-  }
 
   /**
    * Helper function to convert stream to Buffer
